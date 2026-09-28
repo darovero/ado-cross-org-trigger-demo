@@ -1,0 +1,101 @@
+trigger: none
+pr: none
+
+parameters:
+- name: azureRepoRef
+  displayName: Rama del Azure Repo origen (manual)
+  type: string
+  default: refs/heads/develop
+
+resources:
+  repositories:
+  - repository: sourceApp
+    type: git
+    name: agony/demo-app-trigger
+    endpoint: ado-source-daroverodck
+    ref: ${{ parameters.azureRepoRef }}
+    trigger: none
+  webhooks:
+  - webhook: WebHook
+    connection: ado-source-push-webhook
+    filters:
+    - path: eventType
+      value: git.push
+    - path: resource.repository.name
+      value: demo-app-trigger
+    - path: resource.refUpdates[0].name
+      value: refs/heads/develop
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  buildConfiguration: Release
+  solutionPath: $(Build.SourcesDirectory)\source-app\DemoApp.sln
+  sourceAppRef: $[ resources.repositories.sourceApp.ref ]
+  sourceAppVersion: $[ resources.repositories.sourceApp.version ]
+
+steps:
+- checkout: self
+  clean: true
+
+- checkout: sourceApp
+  clean: true
+  path: s/source-app
+  displayName: Checkout Azure Repo seleccionado
+
+- task: UseDotNet@2
+  displayName: Instalar .NET SDK 10
+  inputs:
+    packageType: sdk
+    version: 10.x
+
+- pwsh: |
+    dotnet --info
+    Write-Host "Build reason: $(Build.Reason)"
+    Write-Host "Ref solicitada o predeterminada: ${{ parameters.azureRepoRef }}"
+    Write-Host "Ref resuelta: $env:SOURCE_APP_REF"
+    Write-Host "Commit resuelto: $env:SOURCE_APP_VERSION"
+    git -C "$(Build.SourcesDirectory)\source-app" rev-parse HEAD
+  displayName: Validar origen, SDK, rama y commit
+  workingDirectory: $(Build.SourcesDirectory)\source-app
+  env:
+    SOURCE_APP_REF: $(sourceAppRef)
+    SOURCE_APP_VERSION: $(sourceAppVersion)
+
+- task: DotNetCoreCLI@2
+  displayName: Restaurar dependencias
+  inputs:
+    command: restore
+    projects: $(solutionPath)
+
+- task: DotNetCoreCLI@2
+  displayName: Compilar solución
+  inputs:
+    command: build
+    projects: $(solutionPath)
+    arguments: --configuration $(buildConfiguration) --no-restore
+
+- task: DotNetCoreCLI@2
+  displayName: Ejecutar pruebas
+  inputs:
+    command: test
+    projects: $(solutionPath)
+    arguments: --configuration $(buildConfiguration) --no-build
+    publishTestResults: true
+
+- task: DotNetCoreCLI@2
+  displayName: Publicar aplicación
+  inputs:
+    command: publish
+    publishWebProjects: false
+    projects: $(Build.SourcesDirectory)\source-app\src\DemoApi\DemoApi.csproj
+    arguments: --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)\DemoApi
+    zipAfterPublish: true
+
+- task: PublishPipelineArtifact@1
+  displayName: Publicar artefacto DemoApi
+  inputs:
+    targetPath: $(Build.ArtifactStagingDirectory)\DemoApi
+    artifact: DemoApi-${{ replace(replace(parameters.azureRepoRef, 'refs/heads/', ''), '/', '-') }}
+    publishLocation: pipeline
