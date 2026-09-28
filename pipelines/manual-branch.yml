@@ -1,0 +1,84 @@
+trigger: none
+pr: none
+
+parameters:
+- name: azureRepoRef
+  displayName: Rama del Azure Repo origen
+  type: string
+  default: refs/heads/main
+
+resources:
+  repositories:
+  - repository: sourceApp
+    type: git
+    name: agony/demo-app-trigger
+    endpoint: ado-source-daroverodck
+    ref: ${{ parameters.azureRepoRef }}
+    trigger: none
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  buildConfiguration: Release
+  solutionPath: $(Build.SourcesDirectory)\source-app\DemoApp.sln
+
+steps:
+- checkout: self
+  clean: true
+
+- checkout: sourceApp
+  clean: true
+  path: s/source-app
+  displayName: Checkout Azure Repo seleccionado
+
+- task: UseDotNet@2
+  displayName: Instalar .NET SDK 10
+  inputs:
+    packageType: sdk
+    version: 10.x
+
+- pwsh: |
+    dotnet --info
+    Write-Host "Ref solicitada: ${{ parameters.azureRepoRef }}"
+    Write-Host "Ref resuelta: $(resources.repositories.sourceApp.ref)"
+    Write-Host "Commit resuelto: $(resources.repositories.sourceApp.version)"
+    git -C "$(Build.SourcesDirectory)\source-app" rev-parse HEAD
+  displayName: Validar SDK, rama y commit
+
+- task: DotNetCoreCLI@2
+  displayName: Restaurar dependencias
+  inputs:
+    command: restore
+    projects: $(solutionPath)
+
+- task: DotNetCoreCLI@2
+  displayName: Compilar solución
+  inputs:
+    command: build
+    projects: $(solutionPath)
+    arguments: --configuration $(buildConfiguration) --no-restore
+
+- task: DotNetCoreCLI@2
+  displayName: Ejecutar pruebas
+  inputs:
+    command: test
+    projects: $(solutionPath)
+    arguments: --configuration $(buildConfiguration) --no-build --logger trx --results-directory $(Agent.TempDirectory)\TestResults
+    publishTestResults: true
+
+- task: DotNetCoreCLI@2
+  displayName: Publicar aplicación
+  inputs:
+    command: publish
+    publishWebProjects: false
+    projects: $(Build.SourcesDirectory)\source-app\src\DemoApi\DemoApi.csproj
+    arguments: --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)\DemoApi
+    zipAfterPublish: true
+
+- task: PublishPipelineArtifact@1
+  displayName: Publicar artefacto DemoApi
+  inputs:
+    targetPath: $(Build.ArtifactStagingDirectory)\DemoApi
+    artifact: DemoApi-${{ replace(replace(parameters.azureRepoRef, 'refs/heads/', ''), '/', '-') }}
+    publishLocation: pipeline

@@ -1,0 +1,88 @@
+trigger: none
+pr: none
+
+resources:
+  repositories:
+  - repository: sourceApp
+    type: git
+    name: agony/demo-app-trigger
+    endpoint: ado-source-daroverodck
+    ref: refs/heads/develop
+    trigger: none
+  webhooks:
+  - webhook: WebHook
+    connection: ado-source-push-webhook
+    filters:
+    - path: eventType
+      value: git.push
+    - path: resource.repository.name
+      value: demo-app-trigger
+    - path: resource.refUpdates[0].name
+      value: refs/heads/develop
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  buildConfiguration: Release
+  solutionPath: $(Build.SourcesDirectory)\source-app\DemoApp.sln
+
+steps:
+- checkout: self
+  clean: true
+
+- checkout: sourceApp
+  clean: true
+  path: s/source-app
+  displayName: Checkout develop del Azure Repo
+
+- task: UseDotNet@2
+  displayName: Instalar .NET SDK 10
+  inputs:
+    packageType: sdk
+    version: 10.x
+
+- pwsh: |
+    dotnet --info
+    Write-Host "Build reason: $(Build.Reason)"
+    Write-Host "Ref resuelta: $(resources.repositories.sourceApp.ref)"
+    Write-Host "Commit resuelto: $(resources.repositories.sourceApp.version)"
+    git -C "$(Build.SourcesDirectory)\source-app" rev-parse HEAD
+  displayName: Validar trigger, SDK y commit
+
+- task: DotNetCoreCLI@2
+  displayName: Restaurar dependencias
+  inputs:
+    command: restore
+    projects: $(solutionPath)
+
+- task: DotNetCoreCLI@2
+  displayName: Compilar solución
+  inputs:
+    command: build
+    projects: $(solutionPath)
+    arguments: --configuration $(buildConfiguration) --no-restore
+
+- task: DotNetCoreCLI@2
+  displayName: Ejecutar pruebas
+  inputs:
+    command: test
+    projects: $(solutionPath)
+    arguments: --configuration $(buildConfiguration) --no-build --logger trx --results-directory $(Agent.TempDirectory)\TestResults
+    publishTestResults: true
+
+- task: DotNetCoreCLI@2
+  displayName: Publicar aplicación
+  inputs:
+    command: publish
+    publishWebProjects: false
+    projects: $(Build.SourcesDirectory)\source-app\src\DemoApi\DemoApi.csproj
+    arguments: --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)\DemoApi
+    zipAfterPublish: true
+
+- task: PublishPipelineArtifact@1
+  displayName: Publicar artefacto DemoApi
+  inputs:
+    targetPath: $(Build.ArtifactStagingDirectory)\DemoApi
+    artifact: DemoApi-develop
+    publishLocation: pipeline
