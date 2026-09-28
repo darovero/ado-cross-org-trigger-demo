@@ -74,7 +74,7 @@ steps:
   inputs:
     command: test
     projects: $(solutionPath)
-    arguments: --configuration $(buildConfiguration) --no-build --logger trx --results-directory $(Agent.TempDirectory)\TestResults
+    arguments: --configuration $(buildConfiguration) --no-build
     publishTestResults: true
 
 - task: DotNetCoreCLI@2
