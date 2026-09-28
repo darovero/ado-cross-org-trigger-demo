@@ -1,0 +1,38 @@
+trigger: none
+pr: none
+
+resources:
+  webhooks:
+    - webhook: appPush
+      connection: wh-ado-app-push
+
+  repositories:
+    - repository: appSource
+      type: git
+      name: agony/demo-app-trigger
+      endpoint: sc-ado-daroverodck-read
+      ref: refs/heads/develop
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    displayName: Checkout del YAML en GitHub
+
+  - checkout: appSource
+    displayName: Checkout de develop
+    path: s/application
+
+  - bash: |
+      set -euo pipefail
+      echo "Build reason: $(Build.Reason)"
+      echo "Webhook esperado: appPush"
+      echo "Ref descargada: $(resources.appSource.ref)"
+      echo "Commit descargado: $(resources.appSource.version)"
+      test "$(Build.Reason)" = "ResourceTrigger"
+      test "$(resources.triggeringCategory)" = "webhook"
+      python3 -m unittest discover -v
+      python3 app.py
+    workingDirectory: $(Pipeline.Workspace)/s/application
+    displayName: Validar ejecución automática
