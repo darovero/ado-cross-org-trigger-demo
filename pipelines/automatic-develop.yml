@@ -26,6 +26,8 @@ pool:
 variables:
   buildConfiguration: Release
   solutionPath: $(Build.SourcesDirectory)\source-app\DemoApp.sln
+  sourceAppRef: $[ resources.repositories.sourceApp.ref ]
+  sourceAppVersion: $[ resources.repositories.sourceApp.version ]
 
 steps:
 - checkout: self
@@ -45,10 +47,14 @@ steps:
 - pwsh: |
     dotnet --info
     Write-Host "Build reason: $(Build.Reason)"
-    Write-Host "Ref resuelta: $(resources.repositories.sourceApp.ref)"
-    Write-Host "Commit resuelto: $(resources.repositories.sourceApp.version)"
+    Write-Host "Ref resuelta: $env:SOURCE_APP_REF"
+    Write-Host "Commit resuelto: $env:SOURCE_APP_VERSION"
     git -C "$(Build.SourcesDirectory)\source-app" rev-parse HEAD
   displayName: Validar trigger, SDK y commit
+  workingDirectory: $(Build.SourcesDirectory)\source-app
+  env:
+    SOURCE_APP_REF: $(sourceAppRef)
+    SOURCE_APP_VERSION: $(sourceAppVersion)
 
 - task: DotNetCoreCLI@2
   displayName: Restaurar dependencias
